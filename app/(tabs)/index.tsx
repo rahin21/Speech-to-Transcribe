@@ -56,12 +56,12 @@ export default function TabOneScreen() {
       duration: getDurationFormatted(status.durationMillis),
       file: recording.getURI(),
     });
-    
+    // FILE UPLOAD TO FIREBASE
     const response = await fetch(recording.getURI());
     const file = await response.blob();
     const filename = recording.getURI().substring(recording.getURI().lastIndexOf('/')+1);
     const audioRef = ref(storage, filename);
-    const snapshot = await uploadBytes(audioRef, filename)
+    // const snapshot = await uploadBytes(audioRef, filename)
 // console.log(recording)
 // console.log(audioRef)
     uploadBytes(audioRef, file).then((snapshot) => {
