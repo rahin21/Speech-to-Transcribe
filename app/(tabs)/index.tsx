@@ -1,30 +1,40 @@
-import { Button, NativeEventEmitter, StyleSheet } from "react-native";
+import { Button, Platform, StyleSheet } from "react-native";
+
 import {
-  CreateProjectKeyResponse,
-  LiveClient,
-  LiveTranscriptionEvents,
-  createClient,
-} from "@deepgram/sdk";
-import { getStorage, ref, uploadBytes } from "firebase/storage";
+  getDownloadURL,
+  getStorage,
+  listAll,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 import { Text, View } from "@/components/Themed";
 import { Audio } from "expo-av";
 import { useEffect, useState } from "react";
 import { app } from "@/FirebaseCofig";
-const storage = getStorage(app,"gs://transcription-d9c70.appspot.com");
-import * as FileSystem from 'expo-file-system'
+import {
+  getFunctions,
+  connectFunctionsEmulator,
+  httpsCallable,
+} from "firebase/functions";
+const bucketLocation: string = "gs://transcription-d9c70.appspot.com";
+const storage = getStorage(app, bucketLocation);
+
+const functions = getFunctions();
+connectFunctionsEmulator(functions, "10.0.2.2", 5001);
+const transcribeAudio = httpsCallable(functions, "transcribeAudio");
 
 export default function TabOneScreen() {
   const fetch = require("cross-fetch");
-  const eventEmitter = new NativeEventEmitter();
-  const [recording, setRecording] = useState<any>();
+  const [onGoingRecord, setOnGoingRecord] = useState<boolean>(false);
+  const [recording, setRecording] = useState<any>(undefined);
   const [recordings, setRecordings] = useState<any>([]);
-  const [key, setKey] = useState<any>([]);
+  const [transcribes, setTranscribes] = useState<string[]>([]);
+  const [gptRes, setGptRes] = useState<string[]>([]);
+
   const [permissionResponse, requestPermission] = Audio.usePermissions();
-  const [apiKey, setApiKey] = useState<CreateProjectKeyResponse | null>();
-  const [connection, setConnection] = useState<LiveClient | null>();
-  const [caption, setCaption] = useState<string | null>();
-  const [isListening, setListening] = useState(false);
- 
+  const listRef = ref(storage, bucketLocation);
+
+
   async function startRecording() {
     try {
       if (permissionResponse?.status !== "granted") {
@@ -59,16 +69,63 @@ export default function TabOneScreen() {
     // FILE UPLOAD TO FIREBASE
     const response = await fetch(recording.getURI());
     const file = await response.blob();
-    const filename = recording.getURI().substring(recording.getURI().lastIndexOf('/')+1);
+    const filename = recording
+      .getURI()
+      .substring(recording.getURI().lastIndexOf("/") + 1);
     const audioRef = ref(storage, filename);
     // const snapshot = await uploadBytes(audioRef, filename)
-// console.log(recording)
-// console.log(audioRef)
+
     uploadBytes(audioRef, file).then((snapshot) => {
-      console.log('Uploaded a blob or file!');
+      console.log("Uploaded a blob or file!");
     });
     setRecordings(allRecordings);
   }
+  function toggleRecording() {
+    onGoingRecord ? setOnGoingRecord(false) : setOnGoingRecord(true);
+  }
+  if(!onGoingRecord){
+    stopRecording
+  }
+  if (onGoingRecord) {
+    if (recording === undefined) {
+      startRecording()
+    }
+    else { 
+      setTimeout(stopRecording, 10000);
+    }
+  }
+  
+    listAll(listRef)
+      .then((res: any) => {
+        res.items.forEach((itemRef: any) => {
+          getDownloadURL(ref(storage, itemRef._location.path_)).then((url) => {
+            transcribeAudio({ url: url })
+              .then((result) => {
+                // console.log(result.data);
+                if(!transcribes.includes(`${result.data.transcribes}`)||gptRes.includes(`${result.data.gpt_res}`)){
+                  transcribes.push(`${result.data.transcribes}`);
+                  gptRes.push(`${result.data.gpt_res}`);
+                }
+
+              })
+              .catch((error) => {
+                // Getting the Error details.
+                console.error("Error calling the function", error);
+              });
+          });
+          // const desertRef = ref(storage, );
+          // Hello. How are you? //I am fine. Thank you. How are you? I am good.
+
+        });
+      })
+      .catch((error) => {
+        // Uh-oh, an error occurred!
+        throw error;
+      });
+
+
+  console.log("transcribe: ",transcribes);
+  console.log("gpt:",gptRes);
 
   function getDurationFormatted(milliseconds: number) {
     const minutes = milliseconds / 1000 / 60;
@@ -79,41 +136,51 @@ export default function TabOneScreen() {
   }
 
   function getRecordingLines() {
-    return recordings.map((recordingLine: any, index: number) => {
+    return transcribes.map((transcribe: string, index: number) => {
       return (
         <View key={index} style={styles.row}>
           <Text style={styles.fill}>
-            Recording #{index + 1} | {recordingLine.duration}
+            <Text style={{fontWeight:"bold"}}> Transcirbes:</Text>
+            {transcribe}
           </Text>
-          <Button
-            onPress={async () => await recordingLine.sound.replayAsync()}
-            title="Play"
-          ></Button>
         </View>
       );
     });
   }
-  
+  function getGPTresponse() {
+    return gptRes.map((res: string, index: number) => {
+      return (
+        <View key={index} style={styles.row}>
+          <Text style={styles.fill}>
+            <Text style={{fontWeight:"bold"}}> GPT Response:</Text>
+            {res}
+          </Text>
+        </View>
+      );
+    });
+  }
 
   function clearRecordings() {
-    setRecordings([]);
+    setTranscribes([]);
+    setGptRes([]);
   }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Record Audio</Text>
+      <Text style={styles.title}>Transcirbe Your Voice</Text>
       <View
         style={styles.separator}
         lightColor="#aae"
         darkColor="rgba(255,255,255,0.1)"
       />
       <Button
-        title={recording ? "Stop Recording" : "Start Recording"}
-        onPress={recording ? stopRecording : startRecording}
+        title={onGoingRecord ? "Stop Transcribing" : "Start Transcribing"}
+        onPress={toggleRecording}
       />
       {getRecordingLines()}
-      {recordings.length > 0 ? (
-        <Button title={"Clear Recordings"} onPress={clearRecordings} />
+      {getGPTresponse()}
+      {transcribes.length > 0 ? (
+        <Button title={"Clear Transcribes"} onPress={clearRecordings} />
       ) : (
         <View />
       )}
