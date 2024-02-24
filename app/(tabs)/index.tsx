@@ -1,4 +1,4 @@
-import { Button, Platform, StyleSheet } from "react-native";
+import { Button, Platform, ScrollView, StyleSheet } from "react-native";
 
 import {
   getDownloadURL,
@@ -28,12 +28,11 @@ export default function TabOneScreen() {
   const [onGoingRecord, setOnGoingRecord] = useState<boolean>(false);
   const [recording, setRecording] = useState<any>(undefined);
   const [recordings, setRecordings] = useState<any>([]);
-  const [transcribes, setTranscribes] = useState<string[]>([]);
-  const [gptRes, setGptRes] = useState<string[]>([]);
+  const [transcribes, setTranscribes] = useState<any[]>([]);
+  const [ounter, setCounter] = useState<number>(0);
 
   const [permissionResponse, requestPermission] = Audio.usePermissions();
   const listRef = ref(storage, bucketLocation);
-
 
   async function startRecording() {
     try {
@@ -81,51 +80,59 @@ export default function TabOneScreen() {
     setRecordings(allRecordings);
   }
   function toggleRecording() {
-    onGoingRecord ? setOnGoingRecord(false) : setOnGoingRecord(true);
-  }
-  if(!onGoingRecord){
-    stopRecording
+    if (onGoingRecord) {
+      stopRecording();
+      setOnGoingRecord(false);
+    } else {
+      setOnGoingRecord(true);
+    }
   }
   if (onGoingRecord) {
     if (recording === undefined) {
-      startRecording()
-    }
-    else { 
-      setTimeout(stopRecording, 10000);
+      startRecording();
+    } else {
+      setTimeout(stopRecording, 30000);
     }
   }
-  
-    listAll(listRef)
-      .then((res: any) => {
-        res.items.forEach((itemRef: any) => {
-          getDownloadURL(ref(storage, itemRef._location.path_)).then((url) => {
-            transcribeAudio({ url: url })
-              .then((result) => {
-                // console.log(result.data);
-                if(!transcribes.includes(`${result.data.transcribes}`)||gptRes.includes(`${result.data.gpt_res}`)){
-                  transcribes.push(`${result.data.transcribes}`);
-                  gptRes.push(`${result.data.gpt_res}`);
-                }
+useEffect(()=>{
 
-              })
-              .catch((error) => {
-                // Getting the Error details.
-                console.error("Error calling the function", error);
-              });
-          });
-          // const desertRef = ref(storage, );
-          // Hello. How are you? //I am fine. Thank you. How are you? I am good.
-
+  listAll(listRef)
+    .then((res: any) => {
+      res.items.forEach((itemRef: any) => {
+        getDownloadURL(ref(storage, itemRef._location.path_)).then((url) => {
+          transcribeAudio({ url: url })
+            .then(async(result) => {
+              console.log(result.data);
+              if (transcribes?.transcription !== `${await result.data?.transcribes}` && await result.data !== 0) {
+               
+                transcribes.push({
+                  transcription: await result.data?.transcribes,
+                  gpt_res: await result.data?.gpt_res,
+                });
+                
+              }
+              // if (!(JSON.stringify(transcribes).includes(JSON.stringify(result.data)))) {
+              //   // console.log(transcribes.findIndex(result.data!))
+              //   transcribes.push(result.data);
+              // }
+            })
+            .catch((error) => {
+              // Getting the Error details.
+              console.error("Error calling the function", error);
+            });
         });
-      })
-      .catch((error) => {
-        // Uh-oh, an error occurred!
-        throw error;
+        // const desertRef = ref(storage, );
+        // Hello. How are you? //I am fine. Thank you. How are you? I am good.
       });
+    })
+    .catch((error) => {
+      // Uh-oh, an error occurred!
+      throw error;
+    });
+},[listRef])
 
-
-  console.log("transcribe: ",transcribes);
-  console.log("gpt:",gptRes);
+  // console.log("transcribe: ", transcribes);
+  // console.log("gpt:", gptRes);
 
   function getDurationFormatted(milliseconds: number) {
     const minutes = milliseconds / 1000 / 60;
@@ -135,34 +142,38 @@ export default function TabOneScreen() {
       : `${Math.floor(minutes)}:${seconds}`;
   }
 
+  const unique = transcribes.filter((obj, index) => {
+    if(obj.transcription!== undefined){
+      return index === transcribes.findIndex(o => obj.transcription === o.transcription );
+    }
+  });
+  // setTimeout(() => {
+  //   setTranscribes([...unique])
+  // }, 120000);
+  // console.log("unniq:",unique);
   function getRecordingLines() {
-    return transcribes.map((transcribe: string, index: number) => {
-      return (
-        <View key={index} style={styles.row}>
-          <Text style={styles.fill}>
-            <Text style={{fontWeight:"bold"}}> Transcirbes:</Text>
-            {transcribe}
-          </Text>
-        </View>
-      );
-    });
+    return <ScrollView style={styles.scrollView}>
+      {unique.map((transcribe: string, index: number) => {  
+        return (
+          <View key={index}>  
+              <Text key={index} style={styles.fill}>
+                <Text style={{ fontWeight: "bold" }}> Transcirptions:</Text>
+                {transcribe?.transcription}
+              </Text>
+               
+              <Text style={styles.fill}>
+                <Text style={{ fontWeight: "bold" }}> GPT Response:</Text>
+                {transcribe?.gpt_res}
+              </Text>
+          </View>
+        );
+      })}
+    </ScrollView>
   }
-  function getGPTresponse() {
-    return gptRes.map((res: string, index: number) => {
-      return (
-        <View key={index} style={styles.row}>
-          <Text style={styles.fill}>
-            <Text style={{fontWeight:"bold"}}> GPT Response:</Text>
-            {res}
-          </Text>
-        </View>
-      );
-    });
-  }
+
 
   function clearRecordings() {
     setTranscribes([]);
-    setGptRes([]);
   }
 
   return (
@@ -176,11 +187,13 @@ export default function TabOneScreen() {
       <Button
         title={onGoingRecord ? "Stop Transcribing" : "Start Transcribing"}
         onPress={toggleRecording}
+        
       />
       {getRecordingLines()}
-      {getGPTresponse()}
       {transcribes.length > 0 ? (
-        <Button title={"Clear Transcribes"} onPress={clearRecordings} />
+        <View style={styles.Button}>
+          <Button title={"Clear Transcribes"}  onPress={clearRecordings}  />
+        </View>
       ) : (
         <View />
       )}
@@ -211,7 +224,14 @@ const styles = StyleSheet.create({
     marginRight: 40,
   },
   fill: {
-    flex: 1,
-    margin: 15,
+    marginBottom:12 ,
+    marginHorizontal:10,
+    textAlign: "left"
+  },scrollView: {
+    paddingTop:15,
+    marginHorizontal: 20,
   },
+  Button:{
+    marginBottom:10
+  }
 });
